@@ -30,3 +30,11 @@
 *.exe
 *.out
 *.app
+
+# clang-tidy
+.clang-tidy
+
+# xmake
+.vscode/
+.xmake/
+build/
