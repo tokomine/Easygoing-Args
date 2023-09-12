@@ -31,10 +31,14 @@
 *.out
 *.app
 
-# clang-tidy
+# clang
 .clang-tidy
+.clang-format
 
 # xmake
 .vscode/
 .xmake/
 build/
+
+# MacOS
+.DS_Store
