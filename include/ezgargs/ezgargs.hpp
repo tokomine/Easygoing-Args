@@ -167,67 +167,28 @@ class StrTool {
     }
 };
 
-class Argument {
-  private:
-    friend class EzgArgs;
-    std::string name;
-    std::string nickName;
-    std::string helpMessage;
-    std::string value;
-    bool isRequired = true;
-    std::function<void(const std::string&)> assign;
-    char delim = ',';
-
-  protected:
-    auto getRequired() const -> bool { return isRequired; }
-    auto setRequired(bool required) -> void { this->isRequired = required; }
-    auto getName() -> std::string { return name; }
-    auto getNickName() -> std::string { return nickName; }
-    auto getHelpMessage() -> std::string { return helpMessage; }
-    auto setName(const std::string& name) -> void { this->name = name; }
-    auto setNickName(const std::string& nickName) -> void { this->nickName = nickName; }
-    auto setHelpMessage(const std::string& helpMessage) -> void { this->helpMessage = helpMessage; }
-    auto getAction() -> std::function<void(const std::string&)> { return assign; }
-    auto getDelim() const -> char { return delim; }
-    auto setDelim(char delim) -> void { this->delim = delim; }
-    auto getValue() -> std::string { return value; }
-    auto setValue(const std::string& value) -> void { this->value = value; }
-
+class ActionTool {
   public:
-    auto action(const std::function<void(const std::string&)>& assign) -> Argument& {
-        this->assign = assign;
-        return *this;
-    }
-    auto help(const std::string& helpMessage) -> Argument& {
-        this->helpMessage = helpMessage;
-        return *this;
-    }
-    auto nick(const std::string& nickName) -> Argument& {
-        this->nickName = nickName;
-        return *this;
-    }
-    auto optional() -> Argument& {
-        isRequired = false;
-        return *this;
-    }
-    auto required() -> Argument& {
-        isRequired = true;
-        return *this;
-    }
-};
+    using Action = typename std::function<void(const std::string&)>;
 
-class EzgArgs {
-  private:
-    std::map<std::string, Argument> argsMap;
-    using Action = std::function<void(const std::string&)>;
-
-  protected:
-    // 注册
-    auto regist(const std::string& name) -> Argument& {
-        Argument arg;
-        arg.setName(name);
-        argsMap[name] = arg;
-        return argsMap[name];
+    // makeAction
+    template <typename T>
+    static auto makeAction(T& ref) -> Action {
+        if constexpr (std::is_same_v<T, bool>) {
+            return makeBoolAction(ref);
+        } else if constexpr (std::is_same_v<T, char>) {
+            return makeCharAction(ref);
+        } else if constexpr (std::is_unsigned_v<T>) {
+            return makeUnsignedAction(ref);
+        } else if constexpr (std::is_integral_v<T>) {
+            return makeIntegralAction(ref);
+        } else if constexpr (std::is_arithmetic_v<T>) {
+            return makeArithmeticAction(ref);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            return makeStringAction(ref);
+        } else {
+            return makeConstructorAction(ref);
+        }
     }
 
     // char
@@ -285,6 +246,69 @@ class EzgArgs {
     static auto makeConstructorAction(T& ref) -> Action {
         return [&ref](const std::string& value) { ref = T(value); };
     }
+};
+
+class Argument {
+  private:
+    friend class EzgArgs;
+    std::string name;
+    std::string nickName;
+    std::string helpMessage;
+    std::string value;
+    bool isRequired = true;
+    std::function<void(const std::string&)> assign;
+    char delim = ',';
+
+  protected:
+    auto getRequired() const -> bool { return isRequired; }
+    auto setRequired(bool required) -> void { this->isRequired = required; }
+    auto getName() -> std::string { return name; }
+    auto getNickName() -> std::string { return nickName; }
+    auto getHelpMessage() -> std::string { return helpMessage; }
+    auto setName(const std::string& name) -> void { this->name = name; }
+    auto setNickName(const std::string& nickName) -> void { this->nickName = nickName; }
+    auto setHelpMessage(const std::string& helpMessage) -> void { this->helpMessage = helpMessage; }
+    auto getAction() -> std::function<void(const std::string&)> { return assign; }
+    auto getDelim() const -> char { return delim; }
+    auto setDelim(char delim) -> void { this->delim = delim; }
+    auto getValue() -> std::string { return value; }
+    auto setValue(const std::string& value) -> void { this->value = value; }
+
+  public:
+    auto action(const std::function<void(const std::string&)>& assign) -> Argument& {
+        this->assign = assign;
+        return *this;
+    }
+    auto help(const std::string& helpMessage) -> Argument& {
+        this->helpMessage = helpMessage;
+        return *this;
+    }
+    auto nick(const std::string& nickName) -> Argument& {
+        this->nickName = nickName;
+        return *this;
+    }
+    auto optional() -> Argument& {
+        isRequired = false;
+        return *this;
+    }
+    auto required() -> Argument& {
+        isRequired = true;
+        return *this;
+    }
+};
+
+class EzgArgs {
+  private:
+    std::map<std::string, Argument> argsMap;
+
+  protected:
+    // 注册
+    auto regist(const std::string& name) -> Argument& {
+        Argument arg;
+        arg.setName(name);
+        argsMap[name] = arg;
+        return argsMap[name];
+    }
 
   public:
     auto addArgument(const std::string& name) -> Argument& {
@@ -296,27 +320,8 @@ class EzgArgs {
     template <typename T>
     auto addArgument(const std::string& name, T& ref) -> Argument& {
         auto& arg = regist(name);
-        arg.action(makeAction(ref));
+        arg.action(ActionTool::makeAction(ref));
         return arg;
-    }
-
-    template <typename T>
-    auto makeAction(T& ref) -> Action {
-        if constexpr (std::is_same_v<T, bool>) {
-            return makeBoolAction(ref);
-        } else if constexpr (std::is_same_v<T, char>) {
-            return makeCharAction(ref);
-        } else if constexpr (std::is_unsigned_v<T>) {
-            return makeUnsignedAction(ref);
-        } else if constexpr (std::is_integral_v<T>) {
-            return makeIntegralAction(ref);
-        } else if constexpr (std::is_arithmetic_v<T>) {
-            return makeArithmeticAction(ref);
-        } else if constexpr (std::is_same_v<T, std::string>) {
-            return makeStringAction(ref);
-        } else {
-            return makeConstructorAction(ref);
-        }
     }
 
     template <typename E>
@@ -335,7 +340,7 @@ class EzgArgs {
             ref.clear();
             for (auto& part : parts) {
                 ref.push_back(E{});
-                Action action = makeAction(ref.back());
+                auto action = ActionTool::makeAction(ref.back());
                 action(part);
             }
         });
@@ -350,7 +355,7 @@ class EzgArgs {
             ref.clear();
             for (auto& part : parts) {
                 auto it = ref.insert((E{}));
-                Action action = makeAction(*it.first);
+                auto action = ActionTool::makeAction(*it.first);
                 action(part);
             }
         });
