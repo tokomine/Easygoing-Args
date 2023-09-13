@@ -4,6 +4,7 @@
 #include <iostream>
 #include <map>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -17,7 +18,7 @@ inline auto hellowolrd() -> std::string {
     return s;
 }
 
-class StrTool {
+class CharTool {
   public:
     static constexpr int HEXADECIMAL = 16;
     static constexpr int DECIMAL = 10;
@@ -151,14 +152,46 @@ class StrTool {
     }
 };
 
+class StrTool {
+  public:
+    static auto split(const std::string& str, char delim) -> std::vector<std::string> {
+        std::stringstream ss(str);
+        std::string item;
+        std::vector<std::string> elems;
+        while (std::getline(ss, item, delim)) {
+            if (!item.empty()) {
+                elems.push_back(item);
+            }
+        }
+        return elems;
+    }
+};
+
 class Argument {
   private:
+    friend class EzgArgs;
     std::string name;
     std::string nickName;
     std::string helpMessage;
+    std::string value;
     bool isRequired = true;
     std::function<void(const std::string&)> assign;
     char delim = ',';
+
+  protected:
+    auto getRequired() const -> bool { return isRequired; }
+    auto setRequired(bool required) -> void { this->isRequired = required; }
+    auto getName() -> std::string { return name; }
+    auto getNickName() -> std::string { return nickName; }
+    auto getHelpMessage() -> std::string { return helpMessage; }
+    auto setName(const std::string& name) -> void { this->name = name; }
+    auto setNickName(const std::string& nickName) -> void { this->nickName = nickName; }
+    auto setHelpMessage(const std::string& helpMessage) -> void { this->helpMessage = helpMessage; }
+    auto getAction() -> std::function<void(const std::string&)> { return assign; }
+    auto getDelim() const -> char { return delim; }
+    auto setDelim(char delim) -> void { this->delim = delim; }
+    auto getValue() -> std::string { return value; }
+    auto setValue(const std::string& value) -> void { this->value = value; }
 
   public:
     auto action(const std::function<void(const std::string&)>& assign) -> Argument& {
@@ -181,22 +214,12 @@ class Argument {
         isRequired = true;
         return *this;
     }
-
-    auto getRequired() const -> bool { return isRequired; }
-    auto setRequired(bool required) -> void { this->isRequired = required; }
-    auto getName() -> std::string { return name; }
-    auto getNickName() -> std::string { return nickName; }
-    auto getHelpMessage() -> std::string { return helpMessage; }
-    auto setName(const std::string& name) -> void { this->name = name; }
-    auto setNickName(const std::string& nickName) -> void { this->nickName = nickName; }
-    auto setHelpMessage(const std::string& helpMessage) -> void { this->helpMessage = helpMessage; }
-    auto getAction() -> std::function<void(const std::string&)> { return assign; }
-    auto getDelim() const -> char { return delim; }
 };
 
 class EzgArgs {
   private:
     std::map<std::string, Argument> argsMap;
+    using Action = std::function<void(const std::string&)>;
 
   protected:
     // 注册
@@ -207,16 +230,60 @@ class EzgArgs {
         return argsMap[name];
     }
 
-    static auto split(const std::string& str, char delim) -> std::vector<std::string> {
-        std::stringstream ss(str);
-        std::string item;
-        std::vector<std::string> elems;
-        while (std::getline(ss, item, delim)) {
-            if (!item.empty()) {
-                elems.push_back(item);
+    // char
+    static auto runCharAction(char& ref) -> Action {
+        return [&ref](const std::string& value) {
+            if (value.starts_with("'") && value.ends_with("'")) {
+                std::string sub = value.substr(1, value.size() - 2);
+                ref = CharTool::unEscape(sub.c_str());
+            } else {
+                ref = CharTool::unEscape(value.c_str());
             }
-        }
-        return elems;
+        };
+    }
+
+    // bool
+    static auto makeBoolAction(bool& ref) -> Action {
+        return [&ref](const std::string& value) {
+            if (value == "1" || value == "True" || value == "true" || value == "TRUE" || value == "t" || value == "T") {
+                ref = true;
+            } else if (value == "0" || value == "False" || value == "false" || value == "FALSE" || value == "f" ||
+                       value == "F") {
+                ref = false;
+            } else {
+                throw std::invalid_argument("invalid argument for bool");
+            }
+        };
+    }
+
+    // unsigned
+    template <typename T>
+    static auto makeUnsignedAction(T& ref) -> Action {
+        return [&ref](const std::string& value) { ref = static_cast<T>(std::stoull(value)); };
+    }
+
+    // integral
+    template <typename T>
+    static auto makeIntegralAction(T& ref) -> Action {
+        return [&ref](const std::string& value) { ref = static_cast<T>(std::stoll(value)); };
+    }
+
+    // arithmetic
+    template <typename T>
+    static auto makeArithmeticAction(T& ref) -> Action {
+        return [&ref](const std::string& value) { ref = static_cast<T>(std::stold(value)); };
+    }
+
+    // string
+    template <typename T>
+    static auto makeStringAction(T& ref) -> Action {
+        return [&ref](const std::string& value) { ref = value; };
+    }
+
+    // constructor
+    template <typename T>
+    static auto makeConstructorAction(T& ref) -> Action {
+        return [&ref](const std::string& value) { ref = T(value); };
     }
 
   public:
@@ -229,8 +296,27 @@ class EzgArgs {
     template <typename T>
     auto addArgument(const std::string& name, T& ref) -> Argument& {
         auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = value; });
+        arg.action(makeAction(ref));
         return arg;
+    }
+
+    template <typename T>
+    auto makeAction(T& ref) -> Action {
+        if constexpr (std::is_same_v<T, bool>) {
+            return makeBoolAction(ref);
+        } else if constexpr (std::is_same_v<T, char>) {
+            return makeCharAction(ref);
+        } else if constexpr (std::is_unsigned_v<T>) {
+            return makeUnsignedAction(ref);
+        } else if constexpr (std::is_integral_v<T>) {
+            return makeIntegralAction(ref);
+        } else if constexpr (std::is_arithmetic_v<T>) {
+            return makeArithmeticAction(ref);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            return makeStringAction(ref);
+        } else {
+            return makeConstructorAction(ref);
+        }
     }
 
     template <typename E>
@@ -244,133 +330,35 @@ class EzgArgs {
     template <typename E>
     auto addArgument(const std::string& name, std::vector<E>& ref) -> Argument& {
         auto& arg = regist(name);
-        arg.action([&ref, &arg](const std::string& value) {
-            std::vector<std::string> parts = split(value, arg.getDelim());
+        arg.action([&ref, &arg, this](const std::string& value) {
+            std::vector<std::string> parts = StrTool::split(value, arg.getDelim());
             ref.clear();
             for (auto& part : parts) {
-                ref.push_back(part);
+                ref.push_back(E{});
+                Action action = makeAction(ref.back());
+                action(part);
             }
         });
         return arg;
     }
 
-    // char
-    template <>
-    auto addArgument(const std::string& name, char& ref) -> Argument& {
+    template <typename E>
+    auto addArgument(const std::string& name, std::set<E>& ref) -> Argument& {
         auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) {
-            if (value.starts_with("'") && value.ends_with("'") && value.size() == 3) {
-                ref = value[1];
-            } else if (value.size() == 1) {
-                ref = value[0];
+        arg.action([&ref, &arg, this](const std::string& value) {
+            std::vector<std::string> parts = StrTool::split(value, arg.getDelim());
+            ref.clear();
+            for (auto& part : parts) {
+                auto it = ref.insert((E{}));
+                Action action = makeAction(*it.first);
+                action(part);
             }
         });
         return arg;
     }
 
-    // unsigned short
-    template <>
-    auto addArgument(const std::string& name, unsigned short& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = static_cast<unsigned short>(std::stoi(value)); });
-        return arg;
-    }
-
-    // short
-    template <>
-    auto addArgument(const std::string& name, short& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = static_cast<short>(std::stoi(value)); });
-        return arg;
-    }
-
-    // unsigned int
-    template <>
-    auto addArgument(const std::string& name, unsigned int& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stoul(value); });
-        return arg;
-    }
-
-    // int
-    template <>
-    auto addArgument(const std::string& name, int& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stoi(value); });
-        return arg;
-    }
-
-    // unsigned long
-    template <>
-    auto addArgument(const std::string& name, unsigned long& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stoul(value); });
-        return arg;
-    }
-
-    // long
-    template <>
-    auto addArgument(const std::string& name, long& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stol(value); });
-        return arg;
-    }
-
-    // unsigned long long
-    template <>
-    auto addArgument(const std::string& name, unsigned long long& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stoull(value); });
-        return arg;
-    }
-
-    // long long
-    template <>
-    auto addArgument(const std::string& name, long long& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stoll(value); });
-        return arg;
-    }
-
-    // float
-    template <>
-    auto addArgument(const std::string& name, float& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stof(value); });
-        return arg;
-    }
-
-    // double
-    auto addArgument(const std::string& name, double& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stod(value); });
-        return arg;
-    }
-
-    // long double
-    auto addArgument(const std::string& name, long double& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) { ref = std::stold(value); });
-        return arg;
-    }
-
-    // bool
-    template <>
-    auto addArgument(const std::string& name, bool& ref) -> Argument& {
-        auto& arg = regist(name);
-        arg.action([&ref](const std::string& value) {
-            if (value == "1" || value == "True" || value == "true" || value == "TRUE" || value == "t" || value == "T") {
-                ref = true;
-            } else if (value == "0" || value == "False" || value == "false" || value == "FALSE" || value == "f" ||
-                       value == "F") {
-                ref = false;
-            } else {
-                throw std::invalid_argument("invalid argument for bool");
-            }
-        });
-        return arg;
-    }
-
+  protected:
+    // instance
     static auto instance() -> EzgArgs& {
         static EzgArgs instance;
         return instance;
